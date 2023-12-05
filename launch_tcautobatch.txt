@@ -1,0 +1,559 @@
+Option Explicit
+''--------------------------------------------------------------------------------------------------------------------
+'' Function List
+''--------------------------------------------------------------------------------------------------------------------
+''1. Fn_KillQTPProc
+''2. Fn_LaunchQTP
+''3. Fn_UserVar
+''4. Fn_GetExcelData
+''5. Fn_RunBatch
+''6. Fn_ClearTCCache
+''7. Fn_AssociateLib
+''8. Fn_AddFolderSearchList
+''--------------------------------------------------------------------------------------------------------------------
+
+''--------------------------------------------------------------------------------------------------------------------
+'' Function Number   	: 1                                                                               
+'' Function Name     	: Fn_KillQTPProc()
+'' Function Description : Kills QTPro.exe and QTAutomationAgent.exe is its running
+'' Function Usage    	: Result = Fn_KillQTPProc(sProcessName)
+''						  sProcessName - Process name
+''                     	  return True on Success, False on Failuer     
+'' Function History
+''--------------------------------------------------------------------------------------------------------------------
+''	Developer Name		|	  Date		|Rev. No.|		    Changes Done			|	Reviewer	|	Reviewed Date
+''--------------------------------------------------------------------------------------------------------------------
+'' 	
+''--------------------------------------------------------------------------------------------------------------------
+Function Fn_KillProcess(sProcessName)
+
+	Dim objWMIService
+	Dim objProcess
+	Dim colProcess
+	Dim strComputer
+	
+	On Error Resume Next
+
+	strComputer = "."
+	Set objWMIService = GetObject("winmgmts:" & "{impersonationLevel=impersonate}!\\" & strComputer & "\root\cimv2")
+	Set colProcess = objWMIService.ExecQuery("Select * from Win32_Process Where Name = " & sProcessName)
+	
+	If err = 0 then
+		For Each objProcess in colProcess
+			objProcess.Terminate()
+		Next
+		Fn_KillProcess = True
+	Else
+		Fn_KillProcess = False
+	End If
+	
+End Function	
+
+''--------------------------------------------------------------------------------------------------------------------
+'' Function Name     	: Fn_LaunchQTP(strScriptName)
+'' Function Description : Launch QTP using vbescript
+'' Function Usage    	: Result = Fn_LaunchQTP(strScriptName)
+''						  strScriptName	- Script location on harddrive
+''                     	  return True on success, False on failuer     
+'' Function History
+''--------------------------------------------------------------------------------------------------------------------
+''	Developer Name		|	  Date		|Rev. No.|		    Changes Done			|	Reviewer	|	Reviewed Date
+''--------------------------------------------------------------------------------------------------------------------
+'' 	
+''--------------------------------------------------------------------------------------------------------------------
+Function Fn_LaunchQTP(strScriptName)
+
+	Dim objQTP
+	Dim Result
+	
+	'Result = Fn_KillProcess("javaw.exe")
+	Result = Fn_KillProcess("QTPro.exe")
+	Result = Fn_KillProcess("QTAutomationAgent.exe")
+	Result = Fn_KillProcess("xtop.exe")
+	Result = Fn_KillProcess("nmsd.exe")
+	
+	If Result = True Then
+		Set objQTP = CreateObject("QuickTest.Application")
+		If objQTP.Launched = False Then
+			objQTP.Launch
+			objQTP.Visible = True
+			objQTP.Test.Settings.Run.ObjectSyncTimeOut = 60		
+			objQTP.WindowState = "Minimized"
+			objQTP.ActivateView "ExpertView"
+			objQTP.Open strScriptName,True,False
+			objQTP.Test.Run
+			objQTP.Quit
+			Fn_LaunchQTP = True
+		Else
+			Fn_LaunchQTP = False
+		End If
+	Else
+		Fn_LaunchQTP = False
+	End If
+	Set objQTP = Nothing
+	
+End Function	
+
+''--------------------------------------------------------------------------------------------------------------------
+'' Function Number   	: 3                                                                               
+'' Function Name     	: Fn_UserVar(strVarName)
+'' Function Description : Set or Get Enviornment Variable Value
+'' Function Usage    	: Result = Fn_UserVar(strAction, strVarName)
+''						  strAction - Set or Get Enviornment Variable Value 
+''						  strVarName - Enviornment Variable
+''                     	  return User variable name on success, False on failuer     
+'' Function History
+''--------------------------------------------------------------------------------------------------------------------
+''	Developer Name		|	  Date		|Rev. No.|		    Changes Done			|	Reviewer	|	Reviewed Date
+''--------------------------------------------------------------------------------------------------------------------
+'' 	
+''--------------------------------------------------------------------------------------------------------------------
+
+Function Fn_UserVar(strAction, strVarName)
+
+	Dim WshShl
+	Dim Shell
+	Dim UserVar, objFSO, objParFolder
+
+	Set WshShl = CreateObject("WScript.Shell")
+	Set Shell = WshShl.Environment("User")
+	if strAction = "Get" then
+		UserVar = Shell(strVarName)
+		Fn_UserVar = UserVar
+	elseif strAction = "Set" then
+		Set objFSO = CreateObject("Scripting.FileSystemObject")
+		Set objParFolder = objFSO.GetFolder(objFSO.GetAbsolutePathName("."))
+		Shell(strVarName) = objParFolder.ParentFolder
+		Fn_UserVar = True
+	    Set objParFolder = Nothing
+	    Set objFSO = Nothing	    	
+	end if
+		
+	Set WshShl = Nothing
+	Set Shell = Nothing
+	
+End Function
+
+''--------------------------------------------------------------------------------------------------------------------
+'' Function Number   	: 4                                                                               
+'' Function Name     	: Fn_GetExcelData(strExcelPath, strDataType, intSheetNumber, intRowCount)
+'' Function Description : Launch QTP using vbescript
+'' Function Usage    	: Result = Fn_GetExcelData(strExcelPath, strDataType, intSheetNumber, intRowCount)
+''						  strExcelPath 		- Excel path
+''						  strDataType 		- TestCaseCount / TestRunDetail
+''						  intSheetNumber	- Sheet number
+''						  intRowCount		- Row count in the sheet
+''                     	  return total row count / testcase run status & testcase name on success, False on failuer     
+'' Function History
+''--------------------------------------------------------------------------------------------------------------------
+''	Developer Name		|	  Date		|Rev. No.|		    Changes Done			|	Reviewer	|	Reviewed Date
+''--------------------------------------------------------------------------------------------------------------------
+'' 	
+''--------------------------------------------------------------------------------------------------------------------
+
+Function Fn_GetExcelData(strExcelPath, strDataType, intSheetNumber, intRowCount)
+
+	Const xlCellTypeLastCell = 11
+	Dim objFSO
+	Dim objExcel
+	Dim objWorkbook
+	Dim objWorksheet
+	Dim iXSLRowNum
+	Dim arrRowIds
+	
+	Set objFSO = CreateObject("Scripting.FileSystemObject")
+	
+	If objFSO.FileExists(strExcelPath) Then
+	
+		Set objExcel = CreateObject("Excel.Application")
+	'msgbox strExcelPath
+		Set objWorkbook = objExcel.Workbooks.Open(strExcelPath)
+		
+		If intSheetNumber = "" Then
+			 intSheetNumber = 1
+		End If 	
+		
+		Set objWorksheet = objWorkbook.Worksheets(intSheetNumber)
+		objWorksheet.Activate
+		objWorksheet.UsedRange.SpecialCells(xlCellTypeLastCell).Activate	
+		
+		if strDataType = "TestCaseCount" then
+			For iXSLRowNum = 1 To objExcel.ActiveCell.Row
+				If LCase(objExcel.Cells(iXSLRowNum, 2).Value) = "true" Then
+					arrRowIds = arrRowIds & iXSLRowNum & ":"
+				End If
+			Next
+			Fn_GetExcelData = arrRowIds
+		elseif strDataType = "TestRunDetail" then
+			Fn_GetExcelData = objExcel.Cells(intRowCount, 2).Value & ":" & objExcel.Cells(intRowCount, 3).Value
+		end if
+		
+		If Fn_GetExcelData = "" Then
+			Fn_GetExcelData = ""
+		End if
+		
+		objExcel.Quit
+		Set objWorksheet = Nothing
+		Set objWorkbook = Nothing
+		Set objExcel = Nothing			
+		
+	Else
+		
+		Fn_GetExcelData = False
+		
+	End If
+	
+	Set objFSO = Nothing
+	
+End Function
+
+''--------------------------------------------------------------------------------------------------------------------
+'' Function Number   	: 5                                                                               
+'' Function Name     	: Fn_RunBatch(strExcelPath)
+'' Function Description : Start QTP batch test run after reading list of test cases in the batch run excel
+'' Function Usage    	: Result = Fn_RunBatch(strExcelPath)
+''						  strExcelPath 		- Excel path
+''                     	  return True on success, False on failuer     
+'' Function History
+''--------------------------------------------------------------------------------------------------------------------
+''	Developer Name		|	  Date		|Rev. No.|		    Changes Done			|	Reviewer	|	Reviewed Date
+''--------------------------------------------------------------------------------------------------------------------
+'' 	
+''--------------------------------------------------------------------------------------------------------------------
+
+Function Fn_RunBatch(strExcelPath)
+
+	Dim userVarPath
+	Dim userScriptPath
+	Dim testRun
+	Dim totalTestCase
+	Dim testCaseCount
+	Dim testCaseDetail
+	Dim testCaseName, testCaseStatus
+	Dim objFSO
+	Dim startTime, endTime
+	
+	Set objFSO = CreateObject("Scripting.FileSystemObject")
+	
+	If objFSO.FileExists(strExcelPath) Then
+	
+		userVarPath		= Fn_UserVar("Get", "AutomationDir")
+		userScriptPath 	= userVarPath & "\Scripts\"
+		totalTestCase 		= Fn_GetExcelData(strExcelPath,"TestCaseCount",1, "")
+				
+		totalTestCase		= Split(totalTestCase, ":", -1,1)
+		
+		bReturn = Fn_UpdateLogFiles(Time() & " - " & "Total number of test cases in batch : " & UBound(totalTestCase))
+	
+		For testCaseCount = 0 to (UBound(totalTestCase) - 1)
+			testCaseDetail = Fn_GetExcelData(strExcelPath, "TestRunDetail", 1, totalTestCase(testCaseCount))
+			testCaseDetail = Split( testCaseDetail, ":", -1,1)
+			testCaseStatus = testCaseDetail(0)
+			testCaseName = testCaseDetail(1)
+			If LCase(testCaseStatus) = "true" AND testCaseName <> "" Then
+				If objFSO.FolderExists(userScriptPath & testCaseName) then
+					bReturn = Fn_UpdateLogFiles("-----------------------------------------------------------------------------------------------------")
+					startTime = now()
+					bReturn = Fn_UpdateLogFiles(Time() & " - " & (testCaseCount + 1) & ". " & testCaseName & " - Start")
+					
+				    testRun = Fn_LaunchQTP(userScriptPath & testCaseName)	
+					endTime = now()
+					if DateDiff("s", startTime, endTime) <= 60 Then
+						bReturn = Fn_UpdateLogFiles(testCaseName & " script took: " & DateDiff("s", startTime, endTime) & " seconds")
+					else
+						bReturn = Fn_UpdateLogFiles(testCaseName & " script took: " & Formatnumber((DateDiff("s", startTime, endTime)/60), 2, 0, -1) & " mins")
+					end if
+					bReturn = Fn_UpdateLogFiles("")
+					If testRun = False Then
+						Fn_RunBatch = False
+					End If
+				End if
+			End If
+		Next
+		
+		Fn_RunBatch = True
+		
+	Else
+	
+		Fn_RunBatch = False
+		
+	End If
+	
+	Set objFSO = Nothing
+	
+End Function
+
+''--------------------------------------------------------------------------------------------------------------------
+'' Function Number   	: 6                                                                               
+'' Function Name     	: Fn_ClearTCCache()
+'' Function Description : Delete Teamcenter folder under "%USERPROFILE%"
+'' Function Usage    	: Result = Fn_ClearTCCache()
+''                     	  return True on success, False on failuer     
+'' Function History
+''--------------------------------------------------------------------------------------------------------------------
+''	Developer Name		|	  Date		|Rev. No.|		    Changes Done			|	Reviewer	|	Reviewed Date
+''--------------------------------------------------------------------------------------------------------------------
+'' 	
+''--------------------------------------------------------------------------------------------------------------------
+Function Fn_ClearTCCache()
+
+	Dim objFSO
+	Dim objTCCacheFolder
+	Dim objShell
+	Dim strUserProfile
+	Dim strFolderPath
+
+	On Error Resume Next
+	
+	Set objFSO = CreateObject ("Scripting.FileSystemObject")
+	Set objShell = Wscript.CreateObject("Wscript.Shell")
+	If err = 0 then
+		strUserProfile = objShell.ExpandEnvironmentStrings("%USERPROFILE%")
+		strFolderPath =  strUserProfile & "\Teamcenter"
+		If objFSO.FolderExists(strFolderPath) Then
+			Set objTCCacheFolder = objFSO.GetFolder(strFolderPath)
+			objTCCacheFolder.Delete
+		End If
+		Fn_ClearTCCache = True
+	Else
+		Fn_ClearTCCache = False
+	End If
+		
+	Set objTCCacheFolder = Nothing
+	Set objShell = Nothing
+	Set objFSO = Nothing
+	
+End Function
+
+
+''--------------------------------------------------------------------------------------------------------------------
+'' Function Number   	: 7                                                                               
+'' Function Name     	: Fn_AssociateLib()
+'' Function Description : Adds Library file (Setup.vbs) to the test
+'' Function Usage    	: Result = Fn_AssociateLib(sTestName)
+''						  sTestName - Name of the test to open
+''                     	  return True on Success, False on Failuer     
+'' Function History
+''--------------------------------------------------------------------------------------------------------------------
+''	Developer Name		|	  Date		|Rev. No.|		    Changes Done			|	Reviewer	|	Reviewed Date
+''--------------------------------------------------------------------------------------------------------------------
+'' 	Vallari S			|  13-Jun-2010	| 	1.0	 |									|				|  
+''--------------------------------------------------------------------------------------------------------------------
+Function Fn_AssociateLib(sTestName)
+			Dim qtAppLib 'As QuickTest.Application ' Declare the Application object variable
+			Dim qtLibraries 'As QuickTest.TestLibraries ' Declare a test's libraries collection variable
+			Dim sTestPath
+			Dim sLibPath
+			Dim sFilePath
+
+			sTestPath = Fn_UserVar("Get", "AutomationDir") & "\Scripts\" + sTestName
+			sLibPath = Fn_UserVar("Get", "AutomationDir") & "\Library\"
+
+			' Open QuickTest
+			Set qtAppLib = CreateObject("QuickTest.Application") ' Create the Application object
+			qtAppLib.Launch ' Launch QuickTest
+			qtAppLib.Visible = False ' Set QuickTest to be visible
+			
+			' Open a test and get its libraries collection
+			qtAppLib.Open sTestPath, False, False ' Open a test
+			Set qtLibraries = qtAppLib.Test.Settings.Resources.Libraries ' Get the libraries collection object
+			
+			' Add Utilities.vbs if it's not in the collection
+			sFilePath = sLibPath + "Setup.vbs"
+			If qtLibraries.Find(sFilePath) = -1 Then ' If the library cannot be found in the collection
+				qtLibraries.Add sFilePath, 1 ' Add the library to the collection
+			End If
+			
+			' Set the new libraries configuration as a default
+			qtLibraries.SetAsDefault ' Set library files associated with the test as default for new ones
+			' Set Run Mode as Normal and StepExecutionDelay as 300 milliseconds'
+			qtAppLib.Options.Run.RunMode = "Normal"
+			qtAppLib.Options.Run.StepExecutionDelay = 50
+			
+			'Save the test and close QuickTest
+			qtAppLib.Test.Save ' Save the test
+			qtAppLib.Quit ' Quit QuickTest
+			
+			Set qtLibraries = Nothing ' Release the test's libraries collection
+			Set qtAppLib = Nothing ' Release the Application object
+			Fn_AssociateLib = True 
+End Function
+
+''--------------------------------------------------------------------------------------------------------------------
+'' Function Number   	: 8                                                                               
+'' Function Name     	: Fn_SearchListFolder()
+'' Function Description : Adds Search folder path to QTP
+'' Function Usage    	: Result = Fn_SearchListFolder(sTestName, sFldPath)
+''						  sTestName - Name of the test to open
+''						  sFldPath - Path to be added
+''                     	  return True on Success, False on Failuer     
+'' Function History
+''--------------------------------------------------------------------------------------------------------------------
+''	Developer Name		|	  Date		|Rev. No.|		    Changes Done			|	Reviewer	|	Reviewed Date
+''--------------------------------------------------------------------------------------------------------------------
+'' 	Vallari S			|  13-Jun-2010	| 	1.0	 |									|				|  
+''--------------------------------------------------------------------------------------------------------------------
+Function Fn_AddFolderSearchList(sTestName, sPath)
+			Dim qtAppFld 'As QuickTest.Application ' Declare the Application object variable
+			Dim strPath
+			Dim sTestPath
+			
+			If sPath = "" Then
+				sPath = Fn_UserVar("Get", "AutomationDir") 
+			End If
+			sTestPath = Fn_UserVar("Get", "AutomationDir") & "\Scripts\" + sTestName
+			' Open QuickTest
+			Set qtAppFld = CreateObject("QuickTest.Application") ' Create the Application object
+			qtAppFld.Launch ' Start QuickTest
+			qtAppFld.Visible = True ' Make the QuickTest application visible
+						
+			' Open a test
+			qtAppFld.Open sTestPath, True, False ' Open a test in a read-only mode
+
+			'Remove all Foler Paths earlier assocoated
+			'qtAppFld.Folders.RemoveAll
+			 'If returned empty string, then we cannot locate the absolute path, so there is nothing to do
+			 ' If qtAppFld.Folders.Find(sPath) = -1 Then ' If the folder is not found in the collection
+					''qtAppFld.Folders.Add sPath & "\", 1 ' Add the folder to the collection
+					'qtAppFld.Folders.Add sPath & "\Library\", 2 ' Add the folder to the collection
+			 ' End If
+			' Set Run Mode as Normal and StepExecutionDelay as 300 milliseconds'
+			  qtAppFld.Options.Run.RunMode = "Normal"
+ 			  qtAppFld.Options.Run.StepExecutionDelay = 50
+					'qtAppFld.Test.Run
+
+			  qtAppFld.Quit ' Quit QuickTest
+			
+			Set qtAppFld = Nothing ' Release the Application object
+			Fn_AddFolderSearchList = True
+End Function
+
+''--------------------------------------------------------------------------------------------------------------------
+'' Function Number   	: 9                                                                               
+'' Function Name     	: Fn_CreateLogFile()
+'' Function Description : Creates test log file under Batch File location
+'' Function Usage    	: Result = Fn_CreateLogFile()
+''                     	  return File Path on Success, False on Failuer     
+'' Function History
+''--------------------------------------------------------------------------------------------------------------------
+''	Developer Name		|	  Date		|Rev. No.|		    Changes Done			|	Reviewer	|	Reviewed Date
+''--------------------------------------------------------------------------------------------------------------------
+'' 	Samir Thosae		|  21-Jun-2010	| 	1.0	 |									|				|  
+''--------------------------------------------------------------------------------------------------------------------
+Function Fn_CreateLogFile()
+	Dim objFSO, objLogFile
+	Dim sBatchFldr, sFilePath
+
+	On Error Resume Next 
+
+	sBatchFldr = Fn_UserVar("Get", "AutomationDir") & "\BatchRun"
+
+    Set objFSO = CreateObject("Scripting.FileSystemObject")	
+
+	sFilePath = sBatchFldr + "\batchrunner.log"
+	If not (objFSO.FileExists(sFilePath)) Then
+		Set objLogFile = objFSO.CreateTextFile(sFilePath)
+	Else
+		objFSO.DeleteFile sFilePath,True
+		Set objLogFile = objFSO.CreateTextFile(sFilePath)
+	End If
+
+	Fn_CreateLogFile = sFilePath
+
+	Set objFSO = Nothing
+	Set objLogFile = Nothing
+End Function
+
+'**********************************************************************************************************************
+' Function Number   	: 10                                                                                
+' Function Name     	: Fn_UpdateLogFiles()
+' Function Description  : Update log file and batch excel
+' Function Usage    	: bReturn = Fn_UpdateLogFiles(sTestLogComment, sBatchLogComment)
+'							sTestLogComment	- Log statements to be entered in test log file
+'							sBatchLogComment - Log statements to be entered in batch excel file
+'             				
+' Function History
+'----------------------------------------------------------------------------------------------------------------------
+'	Developer Name		|	  Date		|Rev. No.|		    Changes Done			|	Reviewer	|	Reviewed Date
+'----------------------------------------------------------------------------------------------------------------------
+' 	Samir Thosar		|  9-June-2010	| 	2.0	 |									|				|
+'**********************************************************************************************************************
+
+Function Fn_UpdateLogFiles(sTestLogComment)
+   
+   Dim objFSO, objFile, sFileName
+   
+   On Error Resume Next 
+   
+	If sTestLogComment <> "" Then
+
+		Set objFSO = CreateObject("Scripting.FileSystemObject")	
+
+		sFileName = Fn_UserVar("Get", "AutomationDir") & "\BatchRun\batchrunner.log" 
+
+		Set objFile = objFSO.OpenTextFile(sFileName,8)
+
+		objFile.WriteLine sTestLogComment
+
+		Set objFile = Nothing
+		Set objFSO = Nothing
+
+	End If
+
+End Function
+
+''--------------------------------------------------------------------------------------------------------------------
+'' Batch Run
+''--------------------------------------------------------------------------------------------------------------------
+
+Dim Result
+Dim testFolder
+Dim sFldPath,iCount
+Dim bReturn,sInputBatchIterations
+
+bReturn = Fn_UserVar("Set", "AutomationDir")
+if bReturn = True then
+
+    bReturn = Fn_CreateLogFile()
+    
+    bReturn = Fn_UpdateLogFiles("========================================================================================================================")
+    bReturn = Fn_UpdateLogFiles("Start QTP Batch Runner")
+    bReturn = Fn_UpdateLogFiles("Batch Date - " & Date())
+    bReturn = Fn_UpdateLogFiles("Batch Time - " & Time()) 
+    bReturn = Fn_UpdateLogFiles("========================================================================================================================")
+    
+    sFldPath = Fn_UserVar("Get", "AutomationDir")
+    bReturn = Fn_UpdateLogFiles(Time() & " - " & "Get libaray path - " & sFldPath)
+   
+    
+    
+    testFolder = Fn_UserVar("Get", "AutomationDir") & "\BatchRun\QTP_TestCase_BatchRun.xlsx"
+	
+    bReturn = Fn_UpdateLogFiles(Time() & " - " & "Set QTP_TestCase_BatchRun.xls path - " & testFolder)
+    
+       
+    bReturn = Fn_UpdateLogFiles(Time() & " - " & "Start batch runner")
+	sInputBatchIterations=InputBox("Enter number of batch iterations ?")
+	For iCount=1 to sInputBatchIterations
+	Fn_KillProcess("iexplore.exe")
+	Fn_KillProcess("excel.exe")
+	Result = Fn_AddFolderSearchList("BatchSetup", sFldPath)
+	bReturn = Fn_UpdateLogFiles(Time() & " - " & "Set libaray path - " & sFldPath)
+    Result = Fn_RunBatch(testFolder)
+	Next
+	
+    bReturn = Fn_UpdateLogFiles("-----------------------------------------------------------------------------------------------------" & vbcrlf)
+    bReturn = Fn_UpdateLogFiles(Time() & " - " & "Finish batch runner")
+    
+    if Result = False Then
+    	bReturn = Fn_UpdateLogFiles(Time() & " - " & "batch runner failed")
+    end if	
+    
+    bReturn = Fn_UpdateLogFiles("========================================================================================================================")
+	msgbox "Batch Execution Ends"
+else
+    Msgbox "Oops some error occured, contact automation team.....:-("
+end if
+
+
+''--------------------------------------------------------------------------------------------------------------------
